@@ -6,101 +6,84 @@ fn main() {
     arch.run();
 }
 
+// ****
+// MATH
+// ****
+const MAX_VALUE: usize = 32768;
+
+fn wrap(a: usize) -> u16 {
+    (a % MAX_VALUE) as u16
+}
+
+fn add(a: u16, b: u16) -> u16 {
+    wrap((a as usize) + (b as usize))
+}
+
+fn mult(a: u16, b: u16) -> u16 {
+    wrap((a as usize) * (b as usize))
+}
+
+// ***********
+// OUR MACHINE
+// ***********
+
 struct Arch {
-    terminate: bool,
+    exit: bool,
     cursor: usize,
-    program: [u16; 32768],
+    mem: [u16; MAX_VALUE],
     reg: [u16; 8],
     stack: Vec<u16>,
-}
-
-struct Address {
-    value: u16,
-}
-
-impl Address {
-    fn is_valid(&self) -> bool {
-        self.value < 32776
-    }
-
-    fn is_register(&self) -> bool {
-        (32768 <= self.value) & (self.value < 32776)
-    }
-
-    fn to_register(&self) -> usize {
-        if !self.is_register() {
-            panic!("Invalid register");
-        }
-        self.value as usize - 32768
-    }
-
-    fn to_address(&self) -> usize {
-        if self.is_register() | !self.is_valid() {
-            panic!("Invalid address");
-        }
-        self.value as usize
-    }
 }
 
 impl Arch {
     fn load(path: &str) -> Arch {
         let mut arch = Arch {
-            terminate: false,
+            exit: false,
             cursor: 0,
-            program: [0; 32768],
+            mem: [0; 32768],
             reg: [0; 8],
             stack: vec![],
         };
 
         let bytes = std::fs::read(path).unwrap();
         for (n, byte_pair) in bytes.chunks_exact(2).enumerate() {
-            arch.program[n] = u16::from_le_bytes([byte_pair[0], byte_pair[1]]);
+            arch.mem[n] = u16::from_le_bytes([byte_pair[0], byte_pair[1]]);
         }
         arch
     }
 
     fn run(&mut self) {
-        while !self.terminate {
+        while !self.exit {
             self.step();
         }
     }
 
     fn next(&mut self) -> u16 {
-        let value = self.program[self.cursor];
+        let value = self.mem[self.cursor];
         self.cursor += 1;
         value
     }
 
     fn next_value(&mut self) -> u16 {
         let value = self.next();
-        let addr = Address { value: value };
-        if addr.is_register() {
-            self.reg[addr.to_register()]
+        self.read(value)
+    }
+
+    fn read(&self, index: u16) -> u16 {
+        let idx = index as usize;
+        if idx < MAX_VALUE {
+            index
         } else {
-            value
+            self.reg[idx % MAX_VALUE]
         }
     }
 
-    fn write_register(&mut self, index: u16, value: u16) {
-        let addr = Address { value: index };
-        self.reg[addr.to_register()] = value
-    }
-
-    fn read_memory(&mut self, index: u16) -> u16 {
-        let addr = Address { value: index };
-        if addr.is_register() {
-            self.program[self.reg[addr.to_register()] as usize]
+    fn write(&mut self, index: u16, value: u16) {
+        let idx = index as usize;
+        if idx < MAX_VALUE {
+            self.mem[idx] = value;
         } else {
-            self.program[addr.to_address()]
-        }
-    }
-
-    fn write_memory(&mut self, index: u16, value: u16) {
-        let addr = Address { value: index };
-        if addr.is_register() {
-            self.program[self.reg[addr.to_register()] as usize] = value
-        } else {
-            self.program[addr.to_address()] = value
+            self.reg[idx % MAX_VALUE] = value;
         }
     }
 
@@ -110,14 +93,14 @@ impl Arch {
         match instr {
             0 => {
                 // halt
-                self.terminate = true;
+                self.exit = true;
                 println!();
             }
             1 => {
                 // set
                 let a = self.next();
                 let b = self.next_value();
-                self.write_register(a, b);
+                self.write(a, b);
             }
             2 => {
                 // push
@@ -128,21 +111,21 @@ impl Arch {
                 // pop
                 let a = self.next();
                 let value = self.stack.pop().unwrap();
-                self.write_register(a, value);
+                self.write(a, self.read(value));
             }
             4 => {
                 // eq
                 let a = self.next();
                 let b = self.next_value();
                 let c = self.next_value();
-                self.write_register(a, if b == c { 1 } else { 0 });
+                self.write(a, if b == c { 1 } else { 0 });
             }
             5 => {
                 // gt
                 let a = self.next();
                 let b = self.next_value();
                 let c = self.next_value();
-                self.write_register(a, if b > c { 1 } else { 0 });
+                self.write(a, if b > c { 1 } else { 0 });
             }
             6 => {
                 // jmp
@@ -150,18 +133,18 @@ impl Arch {
             }
             7 => {
                 // jt
-                let a = self.next_value();
-                let b = self.next_value();
-                if a != 0 {
-                    self.cursor = b as usize;
+                let a = self.next();
+                let b = self.next();
+                if self.read(a) != 0 {
+                    self.cursor = self.read(b) as usize;
                 }
             }
             8 => {
                 // jf
-                let a = self.next_value();
-                let b = self.next_value();
-                if a == 0 {
-                    self.cursor = b as usize;
+                let a = self.next();
+                let b = self.next();
+                if self.read(a) == 0 {
+                    self.cursor = self.read(b) as usize;
                 }
             }
             9 => {
@@ -169,75 +152,75 @@ impl Arch {
                 let a = self.next();
                 let b = self.next_value();
                 let c = self.next_value();
-                self.write_register(a, (b + c) % 32768);
+                self.write(a, add(b, c));
             }
             10 => {
                 // mult
                 let a = self.next();
                 let b = self.next_value();
                 let c = self.next_value();
-                self.write_register(a, ((b as u64 * c as u64) % 32768) as u16);
+                self.write(a, mult(b, c));
             }
             11 => {
                 // mod
                 let a = self.next();
                 let b = self.next_value();
                 let c = self.next_value();
-                self.write_register(a, b % c);
+                self.write(a, b % c);
             }
             12 => {
                 // and
                 let a = self.next();
                 let b = self.next_value();
                 let c = self.next_value();
-                self.write_register(a, b & c);
+                self.write(a, b & c);
             }
             13 => {
                 // or
                 let a = self.next();
                 let b = self.next_value();
                 let c = self.next_value();
-                self.write_register(a, b | c);
+                self.write(a, b | c);
             }
             14 => {
                 // not
                 let a = self.next();
                 let b = self.next_value();
-                self.write_register(a, !b & !32768);
+                self.write(a, (MAX_VALUE as u16 - 1) ^ b);
             }
             15 => {
                 // rmem
                 let a = self.next();
-                let b = self.next();
-                let b = self.read_memory(b);
-                self.write_register(a, b);
+                let b = self.next_value();
+                let b = self.mem[b as usize];
+                self.write(a, b);
             }
             16 => {
                 // wmem
-                let a = self.next();
+                let a = self.next_value();
                 let b = self.next_value();
-                self.write_memory(a, b);
+                self.mem[a as usize] = b;
             }
             17 => {
                 // call
-                self.stack.push(self.cursor as u16 + 1);
                 let a = self.next_value();
+                self.stack.push(self.cursor as u16);
                 self.cursor = a as usize;
             }
             18 => {
                 // ret
                 match self.stack.pop() {
                     None => {
-                        self.terminate;
+                        self.exit = true;
                     }
                     Some(a) => {
-                        self.cursor = a as usize;
+                        self.cursor = self.read(a) as usize;
                     }
                 }
             }
             19 => {
                 // out
-                let a = self.next() as u8 as char;
+                let a = self.next_value() as u8 as char;
                 print!("{}", a);
             }
             20 => {
@@ -245,9 +228,11 @@ impl Arch {
                 let a = self.next();
                 let mut buf: [u8; 1] = [0];
                 io::stdin().read_exact(&mut buf).unwrap();
-                self.write_register(a, buf[0] as u16);
+                self.write(a, buf[0] as u16);
             }
-            21 => {}
+            21 => {
+                // noop
+            }
             _ => panic!("Unrecogized instruction: {}", instr),
         }
     }
