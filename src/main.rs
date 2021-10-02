@@ -1,9 +1,115 @@
-use std::io::{self, Read};
+use std::collections::VecDeque;
+use std::io::{self, Write};
 use std::vec::Vec;
 
 fn main() {
-    let mut arch = Arch::load("data/challenge.bin");
-    arch.run();
+    let mut dbg = Debugger {
+        machine: Arch::load("data/challenge.bin"),
+    };
+    dbg.prompt();
+}
+
+struct Debugger {
+    machine: Arch,
+}
+
+impl Debugger {
+    fn step(&mut self) {
+        self.machine.step();
+    }
+
+    fn run(&mut self) {
+        self.machine.run();
+        if self.machine.exit {
+            return;
+        } else {
+            self.machine.pause = false;
+        }
+    }
+
+    fn prompt(&mut self) {
+        print!("dbg> ");
+        io::stdout().flush().unwrap();
+        let mut cmd = String::new();
+        io::stdin().read_line(&mut cmd).unwrap();
+        cmd.pop().unwrap();
+
+        if cmd.starts_with("read ") {
+            let mut parts = cmd.split_ascii_whitespace();
+            parts.next();
+            let bytes = std::fs::read(&cmd[5..]).unwrap();
+            for c in bytes {
+                self.machine.stdin.push_back(c as u16);
+            }
+            self.run();
+            return self.prompt();
+        }
+
+        if cmd.starts_with("set ") {
+            let parts: Vec<&str> = cmd.split_whitespace().collect();
+            let reg = parts[1].parse::<usize>().unwrap();
+            let value = parts[2].parse::<u16>().unwrap();
+            self.machine.reg[reg] = value;
+            return self.prompt();
+        }
+
+        match cmd.as_str() {
+            "run" => {
+                self.run();
+            }
+            "step" => {
+                self.step();
+            }
+            "exit" => {
+                return;
+            }
+            "show" => {
+                println!("==================");
+                println!("exit: {}", self.machine.exit);
+                println!("cursor: {}", self.machine.cursor);
+
+                println!("------------------");
+                for (n, v) in self.machine.reg.iter().enumerate() {
+                    println!("reg {}: {}", n, v);
+                }
+
+                println!("------------------");
+                let size = self.machine.stack.len();
+                for (n, v) in self.machine.stack.iter().rev().enumerate() {
+                    println!("stack {} {}", size - n, v);
+                    if n > 5 {
+                        break;
+                    }
+                }
+
+                println!("------------------");
+                let start = if self.machine.cursor >= 5 {
+                    self.machine.cursor - 5
+                } else {
+                    0
+                };
+                let end = std::cmp::min(self.machine.cursor + 15, MAX_VALUE);
+                for (n, v) in self.machine.mem[start..end].iter().enumerate() {
+                    if start + n == self.machine.cursor {
+                        println!("mem {} {}   <==", n, v);
+                    } else {
+                        println!("mem {} {}", n, v);
+                    }
+                }
+
+                println!("==================");
+            }
+            _ => {
+                for c in cmd.chars() {
+                    self.machine.stdin.push_back(c as u16);
+                }
+                self.machine.stdin.push_back('\n' as u16);
+                self.run();
+            }
+        }
+
+        self.prompt();
+    }
 }
 
 // ****
@@ -28,21 +134,25 @@ fn mult(a: u16, b: u16) -> u16 {
 // ***********
 
 struct Arch {
+    pause: bool,
     exit: bool,
     cursor: usize,
     mem: [u16; MAX_VALUE],
     reg: [u16; 8],
     stack: Vec<u16>,
+    stdin: VecDeque<u16>,
 }
 
 impl Arch {
     fn load(path: &str) -> Arch {
         let mut arch = Arch {
+            pause: false,
             exit: false,
             cursor: 0,
             mem: [0; 32768],
             reg: [0; 8],
             stack: vec![],
+            stdin: VecDeque::new(),
         };
 
         let bytes = std::fs::read(path).unwrap();
@@ -53,7 +163,7 @@ impl Arch {
     }
 
     fn run(&mut self) {
-        while !self.exit {
+        while !self.exit && !self.pause {
             self.step();
         }
     }
@@ -225,10 +335,18 @@ impl Arch {
             }
             20 => {
                 // in
-                let a = self.next();
-                let mut buf: [u8; 1] = [0];
-                io::stdin().read_exact(&mut buf).unwrap();
-                self.write(a, buf[0] as u16);
+                if self.stdin.len() > 0 {
+                    let a = self.next();
+                    let value = self.stdin.pop_front().unwrap();
+                    self.write(a, value);
+                } else {
+                    self.pause = true;
+                    self.cursor -= 1;
+                }
+                // let a = self.next();
+                // let mut buf: [u8; 1] = [0];
+                // io::stdin().read_exact(&mut buf).unwrap();
+                // self.write(a, buf[0] as u16);
             }
             21 => {
                 // noop
