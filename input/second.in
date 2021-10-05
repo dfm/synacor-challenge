@@ -5,3 +5,18 @@ use teleporter
 set 0 6
 goto 5491
 run
+north
+north
+north
+north
+north
+north
+north
+east
+take journal
+look journal
+west
+north
+north
+take orb
+east
