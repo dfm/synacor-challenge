@@ -15,11 +15,11 @@ struct Debugger {
 
 impl Debugger {
     fn step(&mut self) {
-        self.machine.step();
+        self.machine.step(true);
     }
 
     fn run(&mut self) {
-        self.machine.run();
+        self.machine.run(true);
         if self.machine.exit {
             return;
         } else {
@@ -50,6 +50,20 @@ impl Debugger {
             let reg = parts[1].parse::<usize>().unwrap();
             let value = parts[2].parse::<u16>().unwrap();
             self.machine.reg[reg] = value;
+            return self.prompt();
+        }
+
+        if cmd.starts_with("break ") {
+            let parts: Vec<&str> = cmd.split_whitespace().collect();
+            let value = parts[1].parse::<usize>().unwrap();
+            self.machine.breakpoint = value;
+            return self.prompt();
+        }
+
+        if cmd.starts_with("goto ") {
+            let parts: Vec<&str> = cmd.split_whitespace().collect();
+            let value = parts[1].parse::<usize>().unwrap();
+            self.machine.cursor = value;
             return self.prompt();
         }
 
@@ -91,9 +105,9 @@ impl Debugger {
                 let end = std::cmp::min(self.machine.cursor + 15, MAX_VALUE);
                 for (n, v) in self.machine.mem[start..end].iter().enumerate() {
                     if start + n == self.machine.cursor {
-                        println!("mem {} {}   <==", n, v);
+                        println!("mem {} {}   <==", start + n, v);
                     } else {
-                        println!("mem {} {}", n, v);
+                        println!("mem {} {}", start + n, v);
                     }
                 }
 
@@ -134,6 +148,7 @@ fn mult(a: u16, b: u16) -> u16 {
 // ***********
 
 struct Arch {
+    breakpoint: usize,
     pause: bool,
     exit: bool,
     cursor: usize,
@@ -146,6 +161,7 @@ struct Arch {
 impl Arch {
     fn load(path: &str) -> Arch {
         let mut arch = Arch {
+            breakpoint: 0,
             pause: false,
             exit: false,
             cursor: 0,
@@ -162,9 +178,12 @@ impl Arch {
         arch
     }
 
-    fn run(&mut self) {
+    fn run(&mut self, force: bool) {
+        if force {
+            self.step(true);
+        }
         while !self.exit && !self.pause {
-            self.step();
+            self.step(false);
         }
     }
 
@@ -197,9 +216,12 @@ impl Arch {
         }
     }
 
-    fn step(&mut self) {
+    fn step(&mut self, force: bool) {
+        if self.cursor == self.breakpoint && !force {
+            self.pause = true;
+            return;
+        }
         let instr = self.next();
-        // println!("{} => ", instr);
         match instr {
             0 => {
                 // halt
@@ -343,10 +365,6 @@ impl Arch {
                     self.pause = true;
                     self.cursor -= 1;
                 }
-                // let a = self.next();
-                // let mut buf: [u8; 1] = [0];
-                // io::stdin().read_exact(&mut buf).unwrap();
-                // self.write(a, buf[0] as u16);
             }
             21 => {
                 // noop

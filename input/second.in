@@ -1,0 +1,7 @@
+read input/first.in
+set 7 25734
+break 5489
+use teleporter
+set 0 6
+goto 5491
+run
