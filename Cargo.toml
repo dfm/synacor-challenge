@@ -17,3 +17,7 @@ path = "src/disassemble.rs"
 [[bin]]
 name = "solve"
 path = "src/solve.rs"
+
+[[bin]]
+name = "path"
+path = "src/path.rs"

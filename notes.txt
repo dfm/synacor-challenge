@@ -130,4 +130,7 @@ am not sure what help it will give.  Good luck!
 *   8   -   1
 4   *   11  *
 +   4   -   18
-o   -   9   *
+22  -   9   *
+
+
+Mirrored: Oiu8iIoIAqVM -> MVpAIoIi8uiO
